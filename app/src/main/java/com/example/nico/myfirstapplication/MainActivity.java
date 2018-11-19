@@ -8,42 +8,60 @@ import android.graphics.Point;
 import android.net.wifi.ScanResult;
 import android.net.wifi.WifiManager;
 import android.os.Bundle;
+import android.renderscript.ScriptGroup;
 import android.support.v7.app.AppCompatActivity;
 import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.ListView;
+import android.widget.TextView;
 import android.widget.Toast;
 
+import com.google.common.collect.Maps;
+import com.google.common.util.concurrent.FutureCallback;
+import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.ListeningExecutorService;
+import com.google.common.util.concurrent.MoreExecutors;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.Iterator;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+
+import javax.annotation.Nullable;
 
 public class MainActivity extends AppCompatActivity {
 
     private WifiManager wifiManager;
     private ListView listView;
     private Button buttonScan;
+    private Button buttonValidate;
     private int size =0;
     private List<ScanResult> results;
     private ArrayList<String> arrayList = new ArrayList<>();
-    private ArrayAdapter myAdapter;
+    private MyAdapter myAdapter;
     private HashMap<String,Point> knownBSSIDs;
     private HashMap<String, ArrayList> mesuredValues;
+    private Semaphore semaphore;
+    private ArrayList<Tuple> tuples;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        setKnownBSSIDs();
+
         /*Intent intent = new Intent(this, wifiReceiver.getClass());
         intent.addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES);
         startActivity(intent);*/
@@ -54,19 +72,30 @@ public class MainActivity extends AppCompatActivity {
                 scanWifi();
             }
         });
-
+        buttonValidate = findViewById(R.id.validateBtn);
+        buttonValidate.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                validate();
+            }
+        });
         listView = findViewById(R.id.wifiList);
+        listView.setItemsCanFocus(true);
         wifiManager = (WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE);
-
 
         if(!wifiManager.isWifiEnabled()){
             Toast.makeText(this,"Wifi disabled", Toast.LENGTH_LONG).show();
             wifiManager.setWifiEnabled(true);
         }
-
-        myAdapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, arrayList);
+        tuples = new ArrayList<>();
+        myAdapter = new MyAdapter(this, tuples);
         listView.setAdapter(myAdapter);
         scanWifi();
+
+    }
+
+    public void validate(){
+
     }
 
     private void setKnownBSSIDs() {
@@ -79,18 +108,78 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void calibrateBSSID() {
-        String BSSID = getHighestBSSID().getKey();
+        for(ScanResult scanResult : results) {
+            //if bssid appartient à la liste des bssid connus
+            //TODO remettre ça une fois les bornes identifiées
+            //          if(knownBSSIDs.keySet().contains(scanResult.wifiInfo)) {
+            //ajoute le tuple dans une liste
+
+            if (mesuredValues.get(scanResult.BSSID) != null) {
+                ArrayList<Integer> list = new ArrayList<>();
+                list.add(scanResult.level);
+                mesuredValues.put(scanResult.BSSID, list);
+            } else {
+                mesuredValues.get(scanResult.BSSID).add(scanResult.level);
+            }
+        }
+
+
+
+        TreeMap<Integer, String> sorted = sortHighestBSSID();
+        for(Map.Entry<Integer, String> map: sortHighestBSSID().descendingMap().entrySet()){
+            arrayList.add(map.getValue()+" "+map.getKey());
+            myAdapter.notifyDataSetChanged();
+        }
+        //String wifiInfo = getHighestBSSID().getKey();
+        //bouton monbouton
+        //texte bssid
+        //TextView bssidText = (TextView)findViewById(R.id.wifiInfo);
+        //texte level
+        //texte endoir où on est
     }
 
-    private  Map.Entry<String, Integer> getHighestBSSID() {
-        HashMap<String,Integer> highestRSSI = new HashMap<>();
+
+    private  TreeMap<Integer, String> sortHighestBSSID() {
+        TreeMap<Integer, String> highestRSSI = new TreeMap<>();
 
         for (Map.Entry<String,ArrayList> map: mesuredValues.entrySet()) {
             int i = Collections.max((ArrayList<Integer>)map.getValue());
-            highestRSSI.put(map.getKey(), i);
+            highestRSSI.put(i,map.getKey());
         }
         Map.Entry<String, Integer> closestAccessPoint = null;
 
+        for(Map.Entry<Integer,String> entry : highestRSSI.entrySet() ){
+            tuples.add(new Tuple(entry.getValue()+" "+entry.getKey(), "", "0"));
+            myAdapter.notifyDataSetChanged();
+
+        }
+        /*List<Integer> values = new ArrayList<>(highestRSSI.values());
+        List<String> keys = new ArrayList<>(highestRSSI.keySet());
+        Collections.sort(values);
+        Collections.sort(keys);
+
+        HashMap<String, Integer> sortedMap = new HashMap<>();
+
+        Iterator<Integer> valueIt = values.iterator();
+        while (valueIt.hasNext()) {
+            Integer val = valueIt.next();
+            Iterator<String> keyIt = keys.iterator();
+
+            while (keyIt.hasNext()) {
+                String key = keyIt.next();
+                Integer comp1 = highestRSSI.get(key);
+                Integer comp2 = val;
+
+                if (comp1.equals(comp2)) {
+                    keyIt.remove();
+                    sortedMap.put(key, val);
+                    break;
+                }
+            }
+        }
+        */
+
+        /*
         for (Map.Entry<String, Integer> entry : highestRSSI.entrySet())
         {
             if (closestAccessPoint == null || entry.getValue().compareTo(closestAccessPoint.getValue()) > 0)
@@ -98,59 +187,56 @@ public class MainActivity extends AppCompatActivity {
                 closestAccessPoint = entry;
             }
         }
-        return closestAccessPoint;
+        */
+
+        return highestRSSI;
     }
 
     private void scanWifi(){
         arrayList.clear();
         registerReceiver(wifiReceiver, new IntentFilter(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION));
         //clear la liste des resuts des scans
+        mesuredValues = new HashMap<>();
         mesuredValues.clear();
         //scan 10 fois
-        for(int i=0;i<10;i++) {
-            ListenableFuture future = new ListenableFuture() {
-                @Override
-                public void addListener(Runnable listener, Executor executor) {
+ //       List<ListenableFuture<ScanResult>> list = new ArrayList<>();
+ /*       for(int i=0;i<10;i++) {
 
-                }
-
+            ListeningExecutorService executor = MoreExecutors.listeningDecorator(Executors.newFixedThreadPool(10));
+            ListenableFuture<ScanResult> futureTask = (ListenableFuture<ScanResult>) executor.submit(new Runnable() {
                 @Override
-                public boolean cancel(boolean mayInterruptIfRunning) {
-                    return false;
-                }
-
-                @Override
-                public boolean isCancelled() {
-                    return false;
-                }
-
-                @Override
-                public boolean isDone() {
-                    return false;
-                }
-
-                @Override
-                public Object get() throws ExecutionException, InterruptedException {
-                    return null;
-                }
-
-                @Override
-                public Object get(long timeout, TimeUnit unit) throws ExecutionException, InterruptedException, TimeoutException {
-                    return null;
-                }
-            };
-            wifiManager.startScan();
+                public void run() {
+*/                    wifiManager.startScan();
+/*                }
+            });
+            list.add(futureTask);
         }
         //une fois le scan fini
         //calculer la position
-        findPosition();
-        Toast.makeText(this, "Scanning wifi...", Toast.LENGTH_SHORT).show();
+        ListenableFuture<List<ScanResult>> future = Futures.allAsList(list);
+        Futures.addCallback(future, new FutureCallback<List<ScanResult>>() {
+            @Override
+            public void onSuccess(@Nullable List<ScanResult> result) {
+                setKnownBSSIDs(result);
+                //findPosition(result);
+            }
+
+            @Override
+            public void onFailure(Throwable t) {
+                Toast.makeText(getApplicationContext() , "Scan failed", Toast.LENGTH_SHORT).show();
+            }
+        });
+*/        Toast.makeText(this, "Scanning wifi...", Toast.LENGTH_SHORT).show();
     }
 
     private void findPosition() {
         //recup les mesuredValues
         //calcule les distances
         //triangule
+    }
+
+    private void findPosition(List<ScanResult> result){
+
     }
 
     BroadcastReceiver wifiReceiver = new BroadcastReceiver() {
@@ -162,19 +248,19 @@ public class MainActivity extends AppCompatActivity {
             for(ScanResult scanResult : results){
                 //if bssid appartient à la liste des bssid connus
                 //TODO remettre ça une fois les bornes identifiées
-    //          if(knownBSSIDs.keySet().contains(scanResult.BSSID)) {
+    //          if(knownBSSIDs.keySet().contains(scanResult.wifiInfo)) {
                 //ajoute le tuple dans une liste
                   if(mesuredValues.get(scanResult.BSSID) != null){
-                        ArrayList<Integer> list = new ArrayList<>();
-                        list.add(scanResult.level);
-                        mesuredValues.put(scanResult.BSSID,list);
+                        mesuredValues.get(scanResult.BSSID).add(scanResult.level);
                     }
                     else{
-                        mesuredValues.get(scanResult.BSSID).add(scanResult.level);
+                        ArrayList<Integer> list = new ArrayList<>();
+                        list.add(scanResult.level);
+                        mesuredValues.put(scanResult.BSSID, list);
                     }
      //         }
                 //on peut recup le bssid
-                //arrayList.add(scanResult.BSSID);
+                //arrayList.add(scanResult.wifiInfo);
                 //la Received Signal Strength
                 //arrayList.add(""+scanResult.level);
 
@@ -184,10 +270,10 @@ public class MainActivity extends AppCompatActivity {
                 //ajouter à la liste de la position actuelle le bssid et la position
 
 
-                arrayList.add(scanResult.BSSID+" "+scanResult.SSID+" "+scanResult.level+"dBm, distance: "+calculateDistance(scanResult.level));
-                myAdapter.notifyDataSetChanged();
             }
+            setKnownBSSIDs();
         }
+
     };
 
 

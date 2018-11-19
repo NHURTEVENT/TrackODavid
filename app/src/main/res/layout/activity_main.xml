@@ -29,7 +29,16 @@
         android:id="@+id/wifiList"
         android:layout_width="match_parent"
         android:layout_height="312dp"
-        android:layout_weight="0.97"/>
+        android:layout_weight="0.97"
+        android:descendantFocusability="afterDescendants"/>
+    <Button
+        android:id="@+id/validateBtn"
+        android:layout_width="match_parent"
+        android:layout_gravity="bottom"
+        android:layout_height="50dp"
+        android:layout_margin="15dp"
+        android:background="@android:color/holo_blue_dark"
+        android:text="Validate"/>
 
         <Button
             android:id="@+id/scanBtn"
